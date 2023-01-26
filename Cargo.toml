@@ -9,8 +9,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.68"
-async-stream = "0.3.3"
 itertools = "0.10.5"
-miniserde = "0.1.28"
-next-gen = "0.1.1"
+json = "0.12.4"
 vmap = "0.5.1"
