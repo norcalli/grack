@@ -399,6 +399,7 @@ fn run(
     w.write_all(key)?;
     write!(w, " = ")?;
     stream.reset_peek();
+    let bits = data.extra_byte_count * 8;
     match data.tag {
         MsgpackType::Array => {
             if data.array_count > 0
@@ -411,7 +412,7 @@ fn run(
                     w.write_all(b", ")?;
                     write_value(w, &stream.next().unwrap()?)?;
                 }
-                write!(w, "]a{}@{}\n", data.extra_byte_count, data.array_count)?;
+                write!(w, "]a{bits}@{}\n", data.array_count)?;
             } else {
                 stream.reset_peek();
                 write_value(w, &data)?;
@@ -442,7 +443,7 @@ fn run(
                     w.write_all(b" = ")?;
                     write_value(w, &stream.next().unwrap()?)?;
                 }
-                write!(w, "}}m{}@{}\n", data.extra_byte_count, data.map_count)?;
+                write!(w, "}}m{bits}@{}\n", data.map_count)?;
             } else {
                 write_value(w, &data)?;
                 w.write_all(b"\n")?;
