@@ -2,6 +2,7 @@ use anyhow::{ensure, Result};
 use itertools::structs::MultiPeek;
 use itertools::Itertools;
 use json::JsonValue;
+use std::borrow::Cow;
 use std::io::{BufRead, Read, Write};
 use vmap::io::{BufReader, BufWriter};
 
@@ -12,6 +13,7 @@ pub struct Settings {
     pub inline_map_key: bool,
     pub inline_array: bool,
     pub inline_map: bool,
+    pub root_prefix: Cow<'static, str>,
 }
 
 macro_rules! parse {
@@ -22,18 +24,19 @@ macro_rules! parse {
             ]
         }
 
-        pub fn extract(value: &JsonValue) -> Self {
+        pub fn extract(value: &mut JsonValue) -> Self {
             Self {
                 $(
                     $f: value[stringify!($f)].$method()
                         $(.or_else(|| value[stringify!($alias)].$method()))*
-                        .unwrap_or_else(|| $default),
+                        .map(|x| x.into())
+                        .unwrap_or_else(|| $default.into()),
                     )+
             }
         }
 
         pub fn to_value(&self) -> JsonValue {
-            json::object! { $($f: self.$f),+ }
+            json::object! { $($f: $default),+ }
         }
     };
 }
@@ -45,18 +48,19 @@ impl Settings {
         inline_map_key[ik] as_bool: true,
         inline_array[ia] as_bool: true,
         inline_map[im] as_bool: true,
+        root_prefix[p] take_string: "root",
     }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self::extract(&JsonValue::Null)
+        Self::extract(&mut JsonValue::Null)
     }
 }
 
 fn main() -> Result<()> {
     let settings: Settings = if let Some(s) = std::env::args().nth(1) {
-        let overrides = json::parse(&s).map_err(|e| {
+        let mut overrides = json::parse(&s).map_err(|e| {
             eprintln!(
                 "Failed to parse input: {s}\n\
                 Default settings:\n\
@@ -66,19 +70,20 @@ fn main() -> Result<()> {
             eprintln!("\nKeys:");
             for (names, kind, default) in Settings::extract_info() {
                 eprintln!(
-                    "- {:25} {kind} = {default}",
-                    format!("{}:", names.iter().format(", "))
+                    "- {:25} {:6} = {default}",
+                    format!("{}:", names.iter().format(", ")),
+                    trim_prefix(trim_prefix(kind, "as_"), "take_"),
                 );
             }
             e
         })?;
-        Settings::extract(&overrides)
+        Settings::extract(&mut overrides)
     } else {
         Settings::default()
     };
 
     let mut current_key: Vec<u8> = Vec::with_capacity(kilobytes(1));
-    write!(current_key, "root")?;
+    write!(current_key, "{}", settings.root_prefix)?;
 
     let mut w = BufWriter::new(std::io::stdout(), megabytes(1))?;
     let mut stream = go(std::io::stdin());
@@ -107,6 +112,10 @@ fn main() -> Result<()> {
         try_io_err!(w.flush());
         try_io_err!(res);
     }
+}
+
+fn trim_prefix<'a>(s: &'a str, p: &'a str) -> &'a str {
+    s.strip_prefix(p).unwrap_or(s)
 }
 
 #[derive(Debug)]
