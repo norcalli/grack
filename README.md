@@ -32,8 +32,8 @@ Error: Unexpected character: h at (1:2)
 ## Example
 
 ```
-> cat blob | grack '{"p":".","hm":false,"ik":false}'
-root = [0u0, 100u0, 1.23f32, {}m0@0]a0@4
+> cat blob | grack '{"p":"X","hm":false,"ik":false}'
+X = [0u0, 100u0, 1.23f32, {}m0@0]a0@4
 ```
 
 # Why?
