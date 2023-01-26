@@ -135,9 +135,6 @@ pub enum MsgpackType {
 }
 
 impl MsgpackType {
-    pub fn has_children(&self) -> bool {
-        matches!(self, MsgpackType::Map | MsgpackType::Array)
-    }
     pub fn is_array(&self) -> bool {
         matches!(self, MsgpackType::Array)
     }
@@ -189,6 +186,12 @@ pub struct MsgPackInfo {
     unsigned_value: u64,
     signed_value: i64,
     float_value: f64,
+}
+
+impl MsgPackInfo {
+    pub fn has_children(&self) -> bool {
+        self.array_count > 0 || self.map_count > 0
+    }
 }
 
 pub fn read_byte_array<'a, R: Read>(br: &'_ mut BufReader<R>, count: usize) -> Result<Vec<u8>> {
@@ -362,6 +365,28 @@ fn write_value(w: &mut impl Write, data: &MsgPackInfo) -> Result<()> {
     Ok(())
 }
 
+fn check_children_are_inline(
+    stream: &mut MultiPeek<impl Iterator<Item = Result<MsgPackInfo>>>,
+    count: usize,
+) -> Result<bool> {
+    fn inner(
+        stream: &mut MultiPeek<impl Iterator<Item = Result<MsgPackInfo>>>,
+        count: usize,
+    ) -> Result<bool> {
+        for _ in 0..count {
+            let e = stream.peek().into_anyhow("Expected child")?;
+            let e = e.as_ref().into_anyhow("")?;
+            if e.has_children() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+    let res = inner(stream, count);
+    stream.reset_peek();
+    res
+}
+
 fn run(
     settings: &Settings,
     w: &mut impl Write,
@@ -378,18 +403,7 @@ fn run(
         MsgpackType::Array => {
             if data.array_count > 0
                 && settings.inline_array
-                && (|| -> anyhow::Result<bool> {
-                    Ok({
-                        for _ in 0..data.array_count {
-                            let e = stream.peek().into_anyhow("Expected child")?;
-                            let e = e.as_ref().into_anyhow("")?;
-                            if e.array_count > 0 || e.map_count > 0 {
-                                return Ok(false);
-                            }
-                        }
-                        true
-                    })
-                })()?
+                && check_children_are_inline(stream, data.array_count)?
             {
                 w.write_all(b"[")?;
                 write_value(w, &stream.next().unwrap()?)?;
@@ -416,18 +430,7 @@ fn run(
         MsgpackType::Map => {
             if data.map_count > 0
                 && settings.inline_map
-                && (|| -> anyhow::Result<bool> {
-                    Ok({
-                        for _ in 0..(data.map_count * 2) {
-                            let e = stream.peek().into_anyhow("Expected child")?;
-                            let e = e.as_ref().into_anyhow("")?;
-                            if e.array_count > 0 || e.map_count > 0 {
-                                return Ok(false);
-                            }
-                        }
-                        true
-                    })
-                })()?
+                && check_children_are_inline(stream, data.map_count * 2)?
             {
                 w.write_all(b"{")?;
                 write_value(w, &stream.next().unwrap()?)?;
@@ -441,7 +444,6 @@ fn run(
                 }
                 write!(w, "}}m{}@{}\n", data.extra_byte_count, data.map_count)?;
             } else {
-                stream.reset_peek();
                 write_value(w, &data)?;
                 w.write_all(b"\n")?;
                 for idx in 0..data.map_count {
@@ -451,7 +453,7 @@ fn run(
                             .into_anyhow("No key")?
                             .as_ref()
                             .into_anyhow("")?;
-                        if !matches!(key_data.tag, MsgpackType::Map | MsgpackType::Array) {
+                        if !key_data.has_children() {
                             key.write_all(b"{")?;
                             write_value(key, key_data)?;
                             key.write_all(b"}")?;
@@ -465,6 +467,7 @@ fn run(
                     } else {
                         false
                     };
+                    stream.reset_peek();
                     if !inlined {
                         if settings.hide_map_index {
                             key.write_all(b"{}")?;
