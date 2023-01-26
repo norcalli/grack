@@ -2,6 +2,9 @@
 
 Like [`gron`](https://github.com/tomnomnom/gron), but for `msgpack`.
 
+Arguments are parsed from the first parameter as json, which can be partially
+specified.
+
 ```
 > grack -h
 
@@ -24,6 +27,13 @@ Keys:
 - inline_map, im:           bool   = true
 - root_prefix, p:           string = "root"
 Error: Unexpected character: h at (1:2)
+```
+
+## Example
+
+```
+> cat blob | grack '{"p":".","hm":false,"ik":false}'
+root = [0u0, 100u0, 1.23f32, {}m0@0]a0@4
 ```
 
 # Why?
